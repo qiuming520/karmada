@@ -30,7 +30,9 @@ import (
 
 	operator "github.com/karmada-io/karmada/operator/pkg"
 	operatorv1alpha1 "github.com/karmada-io/karmada/operator/pkg/apis/operator/v1alpha1"
+	"github.com/karmada-io/karmada/operator/pkg/constants"
 	"github.com/karmada-io/karmada/operator/pkg/util"
+	"github.com/karmada-io/karmada/operator/pkg/util/apiclient"
 	"github.com/karmada-io/karmada/operator/pkg/workflow"
 )
 
@@ -108,14 +110,14 @@ func (p *Planner) Execute() error {
 	klog.InfoS("Start execute the workflow", "workflow", p.action, "karmada", klog.KObj(p.karmada))
 
 	if err := p.preRunJob(); err != nil {
-		return err
+		return fmt.Errorf("preRunJob failed, err: %w", err)
 	}
 	if err := p.job.Run(); err != nil {
 		klog.ErrorS(err, "failed to executed the workflow", "workflow", p.action, "karmada", klog.KObj(p.karmada))
 		return p.runJobErr(err)
 	}
 	if err := p.afterRunJob(); err != nil {
-		return err
+		return fmt.Errorf("afterRunJob failed, err: %w", err)
 	}
 
 	klog.InfoS("Successfully executed the workflow", "workflow", p.action, "karmada", klog.KObj(p.karmada))
@@ -159,20 +161,27 @@ func (p *Planner) afterRunJob() error {
 				return fmt.Errorf("error when creating cluster client to install karmada, err: %w", err)
 			}
 
-			secret, err := remoteClient.CoreV1().Secrets(p.karmada.GetNamespace()).Get(context.TODO(), util.AdminKarmadaConfigSecretName(p.karmada.GetName()), metav1.GetOptions{})
+			// the secret name for the Karmada admin kubeconfig for the specified Karmada instance
+			adminSecretName := util.AdminKarmadaConfigSecretName(p.karmada.GetName())
+
+			secret, err := remoteClient.CoreV1().Secrets(p.karmada.GetNamespace()).Get(context.TODO(), adminSecretName, metav1.GetOptions{})
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get remote admin kubeconfig secret (%s/%s), err: %w", p.karmada.GetNamespace(), adminSecretName, err)
 			}
 
-			_, err = localClusterClient.CoreV1().Secrets(p.karmada.GetNamespace()).Create(context.TODO(), &corev1.Secret{
+			desiredSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: p.karmada.GetNamespace(),
-					Name:      util.AdminKarmadaConfigSecretName(p.karmada.GetName()),
+					Name:      adminSecretName,
+					// Ensure the label exists so deinit cleanup can delete it later.
+					Labels: constants.KarmadaOperatorLabel,
 				},
 				Data: secret.Data,
-			}, metav1.CreateOptions{})
+			}
+
+			err = apiclient.CreateOrUpdateSecret(localClusterClient, desiredSecret)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to ensure local admin kubeconfig secret (%s/%s), err: %w", p.karmada.GetNamespace(), adminSecretName, err)
 			}
 		}
 
