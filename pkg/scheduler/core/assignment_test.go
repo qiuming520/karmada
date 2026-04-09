@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -26,6 +27,7 @@ import (
 	policyv1alpha1 "github.com/karmada-io/karmada/pkg/apis/policy/v1alpha1"
 	workv1alpha2 "github.com/karmada-io/karmada/pkg/apis/work/v1alpha2"
 	"github.com/karmada-io/karmada/pkg/scheduler/core/spreadconstraint"
+	"github.com/karmada-io/karmada/pkg/scheduler/framework"
 	"github.com/karmada-io/karmada/pkg/util"
 	"github.com/karmada-io/karmada/test/helper"
 )
@@ -936,5 +938,43 @@ func Test_assignByDuplicatedStrategy(t *testing.T) {
 				t.Errorf("assignByDuplicatedStrategy() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// Test_assignByDynamicStrategy_UnschedulableErrorPreserved verifies that when
+// assignByDynamicStrategy returns an error originating from an UnschedulableError,
+// the error type is preserved through fmt.Errorf wrapping so that callers can
+// detect it via errors.As.
+func Test_assignByDynamicStrategy_UnschedulableErrorPreserved(t *testing.T) {
+	// Set up a state where available replicas (3) < requested replicas (10),
+	// which triggers UnschedulableError in dynamicDivideReplicas.
+	candidates := []spreadconstraint.ClusterDetailInfo{
+		{
+			Name: ClusterMember1,
+			Cluster: helper.NewClusterWithResource(ClusterMember1, corev1.ResourceList{
+				corev1.ResourcePods: *resource.NewQuantity(3, resource.DecimalSI),
+			}, util.EmptyResource().ResourceList(), util.EmptyResource().ResourceList()),
+			AllocatableReplicas: 3,
+		},
+	}
+	spec := &workv1alpha2.ResourceBindingSpec{
+		Replicas: 10,
+		ReplicaRequirements: &workv1alpha2.ReplicaRequirements{
+			ResourceRequest: util.EmptyResource().ResourceList(),
+		},
+		Placement: &policyv1alpha1.Placement{
+			ReplicaScheduling: dynamicWeightStrategy,
+		},
+	}
+
+	state := newAssignState(candidates, spec, &workv1alpha2.ResourceBindingStatus{})
+	_, err := assignByDynamicStrategy(state)
+	if err == nil {
+		t.Fatal("assignByDynamicStrategy() expected error, got nil")
+	}
+
+	var unschedulableErr *framework.UnschedulableError
+	if !errors.As(err, &unschedulableErr) {
+		t.Errorf("assignByDynamicStrategy() error type not preserved: errors.As(*UnschedulableError) = false, error = %v", err)
 	}
 }

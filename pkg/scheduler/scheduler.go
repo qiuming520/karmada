@@ -626,7 +626,7 @@ func (s *Scheduler) scheduleResourceBindingWithClusterAffinities(rb *workv1alpha
 			firstErr = err
 		}
 
-		err = fmt.Errorf("failed to schedule ResourceBinding(%s/%s) with clusterAffiliates index(%d): %v", rb.Namespace, rb.Name, affinityIndex, err)
+		err = fmt.Errorf("failed to schedule ResourceBinding(%s/%s) with clusterAffiliates index(%d): %w", rb.Namespace, rb.Name, affinityIndex, err)
 		klog.Error(err)
 		s.recordScheduleResultEventForResourceBinding(rb, nil, err)
 		affinityIndex++
@@ -764,7 +764,7 @@ func (s *Scheduler) scheduleClusterResourceBindingWithClusterAffinities(crb *wor
 			firstErr = err
 		}
 
-		err = fmt.Errorf("failed to schedule ClusterResourceBinding(%s) with clusterAffiliates index(%d): %v", crb.Name, affinityIndex, err)
+		err = fmt.Errorf("failed to schedule ClusterResourceBinding(%s) with clusterAffiliates index(%d): %w", crb.Name, affinityIndex, err)
 		klog.Error(err)
 		s.recordScheduleResultEventForClusterResourceBinding(crb, nil, err)
 		affinityIndex++

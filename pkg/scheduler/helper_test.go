@@ -19,6 +19,7 @@ package scheduler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -484,6 +485,12 @@ func Test_getConditionByError(t *testing.T) {
 		{
 			name:              "unschedulable error",
 			err:               &framework.UnschedulableError{},
+			expectedCondition: metav1.Condition{Type: workv1alpha2.Scheduled, Reason: workv1alpha2.BindingReasonUnschedulable, Status: metav1.ConditionFalse},
+			ignoreErr:         false,
+		},
+		{
+			name:              "wrapped unschedulable error",
+			err:               fmt.Errorf("failed to assign replicas: %w", fmt.Errorf("failed to scale up: %w", &framework.UnschedulableError{Message: "insufficient replicas"})),
 			expectedCondition: metav1.Condition{Type: workv1alpha2.Scheduled, Reason: workv1alpha2.BindingReasonUnschedulable, Status: metav1.ConditionFalse},
 			ignoreErr:         false,
 		},

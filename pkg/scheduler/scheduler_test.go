@@ -42,6 +42,7 @@ import (
 	karmadafake "github.com/karmada-io/karmada/pkg/generated/clientset/versioned/fake"
 	workv1alpha2lister "github.com/karmada-io/karmada/pkg/generated/listers/work/v1alpha2"
 	"github.com/karmada-io/karmada/pkg/scheduler/core"
+	"github.com/karmada-io/karmada/pkg/scheduler/framework"
 	internalqueue "github.com/karmada-io/karmada/pkg/scheduler/internal/queue"
 	"github.com/karmada-io/karmada/pkg/sharedcli/ratelimiterflag"
 	"github.com/karmada-io/karmada/pkg/util"
@@ -2082,4 +2083,77 @@ func (f *fakeClusterBindingLister) List(_ labels.Selector) (ret []*workv1alpha2.
 
 func (f *fakeClusterBindingLister) Get(_ string) (*workv1alpha2.ClusterResourceBinding, error) {
 	return f.binding, nil
+}
+
+// mockSchedulingQueue records which method handleErr calls.
+type mockSchedulingQueue struct {
+	pushUnschedulableCalled bool
+	pushBackoffCalled       bool
+	forgetCalled            bool
+}
+
+func (m *mockSchedulingQueue) Push(_ *internalqueue.QueuedBindingInfo)       {}
+func (m *mockSchedulingQueue) Pop() (*internalqueue.QueuedBindingInfo, bool) { return nil, false }
+func (m *mockSchedulingQueue) Done(_ *internalqueue.QueuedBindingInfo)       {}
+func (m *mockSchedulingQueue) Len() int                                      { return 0 }
+func (m *mockSchedulingQueue) Run()                                          {}
+func (m *mockSchedulingQueue) Close()                                        {}
+
+func (m *mockSchedulingQueue) PushUnschedulableIfNotPresent(_ *internalqueue.QueuedBindingInfo) {
+	m.pushUnschedulableCalled = true
+}
+
+func (m *mockSchedulingQueue) PushBackoffIfNotPresent(_ *internalqueue.QueuedBindingInfo) {
+	m.pushBackoffCalled = true
+}
+
+func (m *mockSchedulingQueue) Forget(_ *internalqueue.QueuedBindingInfo) {
+	m.forgetCalled = true
+}
+
+func TestHandleErr(t *testing.T) {
+	tests := []struct {
+		name                    string
+		err                     error
+		expectPushUnschedulable bool
+		expectPushBackoff       bool
+		expectForget            bool
+	}{
+		{
+			name:         "nil error calls Forget",
+			err:          nil,
+			expectForget: true,
+		},
+		{
+			name:              "generic error calls PushBackoffIfNotPresent",
+			err:               fmt.Errorf("some transient error"),
+			expectPushBackoff: true,
+		},
+		{
+			name:                    "bare UnschedulableError calls PushUnschedulableIfNotPresent",
+			err:                     &framework.UnschedulableError{Message: "insufficient replicas"},
+			expectPushUnschedulable: true,
+		},
+		{
+			name: "wrapped UnschedulableError calls PushUnschedulableIfNotPresent",
+			err: fmt.Errorf("failed to assign replicas: %w",
+				fmt.Errorf("failed to scale up: %w",
+					&framework.UnschedulableError{Message: "insufficient replicas"})),
+			expectPushUnschedulable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockSchedulingQueue{}
+			s := &Scheduler{priorityQueue: mock}
+			bindingInfo := &internalqueue.QueuedBindingInfo{NamespacedKey: "default/test"}
+
+			s.handleErr(tt.err, bindingInfo)
+
+			assert.Equal(t, tt.expectPushUnschedulable, mock.pushUnschedulableCalled, "PushUnschedulableIfNotPresent")
+			assert.Equal(t, tt.expectPushBackoff, mock.pushBackoffCalled, "PushBackoffIfNotPresent")
+			assert.Equal(t, tt.expectForget, mock.forgetCalled, "Forget")
+		})
+	}
 }
