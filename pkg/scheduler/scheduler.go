@@ -660,7 +660,7 @@ func (s *Scheduler) scheduleResourceBindingWithClusterAffinities(rb *workv1alpha
 	patchErr := s.patchScheduleResultForResourceBinding(rb, string(placementBytes), scheduleResult.SuggestedClusters)
 	patchStatusErr := patchBindingStatusWithAffinityName(s.KarmadaClient, rb, updatedStatus.SchedulerObservedAffinityName)
 	scheduleErr := utilerrors.NewAggregate([]error{patchErr, patchStatusErr})
-	s.recordScheduleResultEventForResourceBinding(rb, nil, scheduleErr)
+	s.recordScheduleResultEventForResourceBinding(rb, scheduleResult.SuggestedClusters, scheduleErr)
 	return scheduleErr
 }
 
@@ -803,7 +803,7 @@ func (s *Scheduler) scheduleClusterResourceBindingWithClusterAffinities(crb *wor
 	patchErr := s.patchScheduleResultForClusterResourceBinding(crb, string(placementBytes), scheduleResult.SuggestedClusters)
 	patchStatusErr := patchClusterBindingStatusWithAffinityName(s.KarmadaClient, crb, updatedStatus.SchedulerObservedAffinityName)
 	scheduleErr := utilerrors.NewAggregate([]error{patchErr, patchStatusErr})
-	s.recordScheduleResultEventForClusterResourceBinding(crb, nil, scheduleErr)
+	s.recordScheduleResultEventForClusterResourceBinding(crb, scheduleResult.SuggestedClusters, scheduleErr)
 	return scheduleErr
 }
 

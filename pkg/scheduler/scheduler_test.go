@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -569,7 +568,7 @@ func TestScheduleResourceBindingWithClusterAffinities(t *testing.T) {
 				`{"metadata":{"annotations":{"policy.karmada.io/applied-placement":"{\"clusterAffinities\":[{\"affinityName\":\"affinity1\",\"clusterNames\":[\"cluster1\"]},{\"affinityName\":\"affinity2\",\"clusterNames\":[\"cluster2\"]}]}"}},"spec":{"clusters":[{"name":"cluster1","replicas":1}]}}`,
 				`{"status":{"schedulerObservingAffinityName":"affinity1"}}`,
 			},
-			expectedEvent: "Normal ScheduleBindingSucceed Binding has been scheduled successfully.",
+			expectedEvent: fmt.Sprintf("Normal ScheduleBindingSucceed %s Result: {cluster1:1}", successfulSchedulingMessage),
 		},
 		{
 			name: "successful scheduling with second affinity",
@@ -688,11 +687,7 @@ func TestScheduleResourceBindingWithClusterAffinities(t *testing.T) {
 			// Check if an event was recorded
 			select {
 			case event := <-fakeRecorder.Events:
-				if strings.Contains(event, "ScheduleBindingFailed") {
-					assert.Contains(t, event, tt.expectedEvent, "Event does not match expected")
-				} else {
-					assert.Contains(t, event, "ScheduleBindingSucceed", "Expected ScheduleBindingSucceed event")
-				}
+				assert.Contains(t, event, tt.expectedEvent, "Event does not match expected")
 			default:
 				t.Errorf("Expected an event to be recorded")
 			}
@@ -900,6 +895,7 @@ func TestScheduleClusterResourceBindingWithClusterAffinities(t *testing.T) {
 		scheduleResults []core.ScheduleResult
 		scheduleErrors  []error
 		expectError     bool
+		expectedEvent   string
 	}{
 		{
 			name: "successful scheduling with first affinity",
@@ -935,6 +931,7 @@ func TestScheduleClusterResourceBindingWithClusterAffinities(t *testing.T) {
 			},
 			scheduleErrors: []error{nil},
 			expectError:    false,
+			expectedEvent:  fmt.Sprintf("Normal ScheduleBindingSucceed %s Result {cluster1:1}", successfulSchedulingMessage),
 		},
 		{
 			name: "successful scheduling with second affinity",
@@ -971,6 +968,7 @@ func TestScheduleClusterResourceBindingWithClusterAffinities(t *testing.T) {
 			},
 			scheduleErrors: []error{errors.New("first affinity failed"), nil},
 			expectError:    false,
+			expectedEvent:  "Warning ScheduleBindingFailed failed to schedule ClusterResourceBinding(test-cluster-binding-2) with clusterAffiliates index(0): first affinity failed",
 		},
 		{
 			name: "all affinities fail",
@@ -1000,6 +998,7 @@ func TestScheduleClusterResourceBindingWithClusterAffinities(t *testing.T) {
 			scheduleResults: []core.ScheduleResult{{}, {}},
 			scheduleErrors:  []error{errors.New("first affinity failed"), errors.New("second affinity failed")},
 			expectError:     true,
+			expectedEvent:   "Warning ScheduleBindingFailed failed to schedule ClusterResourceBinding(test-cluster-binding-fail) with clusterAffiliates index(0): first affinity failed",
 		},
 	}
 
@@ -1026,6 +1025,14 @@ func TestScheduleClusterResourceBindingWithClusterAffinities(t *testing.T) {
 
 			if (err != nil) != tt.expectError {
 				t.Errorf("scheduleClusterResourceBindingWithClusterAffinities() error = %v, expectError %v", err, tt.expectError)
+			}
+
+			// Check if an event was recorded
+			select {
+			case event := <-fakeRecorder.Events:
+				assert.Contains(t, event, tt.expectedEvent, "Event does not match expected")
+			default:
+				t.Errorf("Expected an event to be recorded")
 			}
 		})
 	}
