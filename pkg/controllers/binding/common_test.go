@@ -499,3 +499,110 @@ func Test_divideReplicasByJobCompletions(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildJobCompletionsMap(t *testing.T) {
+	tests := []struct {
+		name        string
+		completions []workv1alpha2.TargetCluster
+		want        map[string]int32
+	}{
+		{
+			name: "multiple clusters with different replica counts",
+			completions: []workv1alpha2.TargetCluster{
+				{Name: "cluster-a", Replicas: 6},
+				{Name: "cluster-b", Replicas: 4},
+			},
+			want: map[string]int32{
+				"cluster-a": 6,
+				"cluster-b": 4,
+			},
+		},
+		{
+			name:        "empty completions",
+			completions: []workv1alpha2.TargetCluster{},
+			want:        map[string]int32{},
+		},
+		{
+			name: "single cluster",
+			completions: []workv1alpha2.TargetCluster{
+				{Name: "cluster-a", Replicas: 10},
+			},
+			want: map[string]int32{
+				"cluster-a": 10,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildJobCompletionsMap(tt.completions)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildJobCompletionsMap() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyJobCompletions(t *testing.T) {
+	tests := []struct {
+		name            string
+		workload        *unstructured.Unstructured
+		clusterName     string
+		completionsMap  map[string]int32
+		wantErr         bool
+		wantCompletions int64
+	}{
+		{
+			name:        "apply completions successfully",
+			workload:    generateJobWorkload("test-job"),
+			clusterName: "cluster-a",
+			completionsMap: map[string]int32{
+				"cluster-a": 6,
+				"cluster-b": 4,
+			},
+			wantErr:         false,
+			wantCompletions: 6,
+		},
+		{
+			name:        "cluster not in map returns error",
+			workload:    generateJobWorkload("test-job"),
+			clusterName: "cluster-c",
+			completionsMap: map[string]int32{
+				"cluster-a": 6,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := applyJobCompletions(tt.workload, tt.clusterName, tt.completionsMap)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("applyJobCompletions() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				got, _, _ := unstructured.NestedInt64(tt.workload.Object, "spec", "completions")
+				if got != tt.wantCompletions {
+					t.Errorf("completions = %v, want %v", got, tt.wantCompletions)
+				}
+			}
+		})
+	}
+}
+
+func generateJobWorkload(name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "batch/v1",
+			"kind":       "Job",
+			"metadata": map[string]any{
+				"name": name,
+			},
+			"spec": map[string]any{
+				"completions": int64(10),
+				"parallelism": int64(2),
+			},
+		},
+	}
+}
